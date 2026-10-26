@@ -1,0 +1,34 @@
+minio/
+dev_tools/
+.env*
+!.env.example
+output/
+.idea/
+.vscode/
+venv/
+.venv
+__pycache__
+.DS_Store
+debug.http
+.temp
+
+# Данные ClickHouse
+ch_data/
+ch_logs/
+
+# Docker-compose YML
+dev-compose.yml/
+
+# Данные Postgres
+postgres_data/
+
+# JSON-файлы для миграций
+src/migrations/files/migration_*.json
+
+# Celery Beat файлы
+celerybeat-*
+node-charts
+
+# Debug-файлы для Cursor
+.cursor/
+graphify-out

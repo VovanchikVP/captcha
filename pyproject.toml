@@ -1,0 +1,11 @@
+[project]
+name = "show-img"
+version = "0.1.0"
+description = "Простой сервис для разметки капчи из таблицы images"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "psycopg[binary,pool]>=3.2",
+    "python-dotenv>=1.0",
+]

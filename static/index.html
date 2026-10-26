@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Разметка капчи</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; padding: 24px;
+    font: 15px/1.4 system-ui, -apple-system, sans-serif;
+    background: #f5f5f7; color: #111;
+  }
+  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; }
+  h1 { font-size: 20px; margin: 0; }
+  #status { color: #777; font-size: 13px; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+  .card {
+    background: #fff; border: 1px solid #e2e2e6; border-radius: 10px;
+    padding: 12px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .card.saving { opacity: .5; pointer-events: none; }
+  .card.error { border-color: #d33; }
+  .card img {
+    width: 100%; height: 110px; object-fit: contain;
+    background: #fafafa; border-radius: 6px;
+  }
+  .card input {
+    width: 100%; box-sizing: border-box; padding: 8px 10px;
+    border: 1px solid #ccc; border-radius: 6px; font-size: 15px;
+  }
+  .card input:focus { outline: 2px solid #4a7dff; outline-offset: -1px; border-color: transparent; }
+  .empty { color: #888; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #16161a; color: #eee; }
+    .card { background: #1f1f24; border-color: #33333a; }
+    .card img { background: #111; }
+    .card input { background: #2a2a31; border-color: #44444c; color: #eee; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Разметка капчи</h1>
+  <span id="status">загрузка…</span>
+</header>
+<div id="grid"></div>
+
+<script>
+const POLL_MS = 5000;
+const grid = document.getElementById('grid');
+const statusEl = document.getElementById('status');
+const cards = new Map();          // id -> элемент карточки
+const resolved = new Set();       // id, уже отправленные на сервер
+
+function makeCard(item) {
+  const card = document.createElement('div');
+  card.className = 'card';
+
+  const img = document.createElement('img');
+  img.src = item.image;
+  img.alt = 'captcha';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'Ответ + Enter';
+  input.autocomplete = 'off';
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submit(item.id, card, input);
+  });
+
+  card.append(img, input);
+  return card;
+}
+
+async function submit(id, card, input) {
+  const answer = input.value.trim();
+  if (!answer) return;
+
+  card.classList.add('saving');
+  card.classList.remove('error');
+  try {
+    const res = await fetch(`/api/images/${id}/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answer }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    resolved.add(id);
+    removeCard(id);
+  } catch (err) {
+    card.classList.remove('saving');
+    card.classList.add('error');
+    console.error(err);
+  }
+}
+
+function removeCard(id) {
+  const card = cards.get(id);
+  if (card) { card.remove(); cards.delete(id); }
+  render();
+}
+
+function render() {
+  if (!cards.size) {
+    statusEl.textContent = 'нет картинок без ответа';
+  } else {
+    statusEl.textContent = `картинок: ${cards.size}`;
+  }
+}
+
+async function poll() {
+  try {
+    const items = await (await fetch('/api/images')).json();
+    const seen = new Set();
+
+    for (const item of items) {
+      if (resolved.has(item.id)) continue;   // ответ уже ушёл, ждём пока исчезнет из выдачи
+      seen.add(item.id);
+      if (!cards.has(item.id)) {
+        const card = makeCard(item);
+        cards.set(item.id, card);
+        grid.append(card);
+      }
+    }
+
+    // убираем то, что получило ответ (в том числе из другой вкладки)
+    for (const [id, card] of cards) {
+      if (!seen.has(id) && card !== document.activeElement?.closest('.card')) {
+        card.remove();
+        cards.delete(id);
+      }
+    }
+    // сервер больше не отдаёт эти id — можно забыть про них
+    for (const id of resolved) {
+      if (!items.some((i) => i.id === id)) resolved.delete(id);
+    }
+    render();
+  } catch (err) {
+    statusEl.textContent = 'нет связи с сервером';
+    console.error(err);
+  }
+}
+
+poll();
+setInterval(poll, POLL_MS);
+</script>
+</body>
+</html>
