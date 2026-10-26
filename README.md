@@ -54,10 +54,32 @@ docker build --platform linux/amd64 --provenance=false -t show-img:latest .
 docker save show-img:latest | sudo k3s ctr --namespace k8s.io images import -
 ```
 
-Если k3s на отдельном сервере — заливаем по ssh:
+Если k3s на отдельном сервере — заливаем в два шага:
 
 ```bash
-docker save show-img:latest | ssh user@k3s-node "sudo k3s ctr --namespace k8s.io images import -"
+docker save show-img:latest -o show-img.tar
+scp show-img.tar user@k3s-node:/tmp/
+ssh -t user@k3s-node "sudo k3s ctr --namespace k8s.io images import /tmp/show-img.tar && rm /tmp/show-img.tar"
+```
+
+Именно в два шага, а не одним пайпом: при `docker save ... | ssh ... "sudo ..."`
+stdin занят тарболом, а `sudo` читает пароль из `/dev/tty`, которого в
+неинтерактивной сессии нет — команда встанет на запросе авторизации. Выделять
+терминал через `ssh -tt` тоже нельзя: tty транслирует CR/LF и портит бинарный
+поток. Во втором шаге stdin свободен, `-t` даёт sudo спросить пароль.
+
+Для неинтерактивной выкатки пароль sudo нужно убрать, а не передавать —
+на узле через `visudo`:
+
+```
+user ALL=(root) NOPASSWD: /usr/local/bin/k3s ctr *
+```
+
+Тогда работает и однострочник с пайпом. Если доступен вход под root, sudo не
+нужен вовсе:
+
+```bash
+docker save show-img:latest | ssh root@k3s-node "k3s ctr --namespace k8s.io images import -"
 ```
 
 Проверить, что узел действительно видит образ:
