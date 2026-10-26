@@ -36,21 +36,46 @@ uv run uvicorn app:app --reload
 
 ### 1. Собрать образ и завезти его в кластер
 
-Если реестра нет, образ можно импортировать в containerd узла напрямую:
+Узел k3s не видит образы из локального Docker — их нужно класть в containerd
+**на самом узле**, иначе kubelet пойдёт за образом в docker.io и упадёт с
+`pull access denied, repository does not exist`.
+
+Собирать нужно под архитектуру узла и без provenance-обвязки buildx
+(иначе в тарболе окажется вложенный manifest list, который containerd не всегда
+разворачивает). Для узла на x86:
 
 ```bash
-docker build -t show-img:latest .
-docker save show-img:latest | sudo k3s ctr images import -
+docker build --platform linux/amd64 --provenance=false -t show-img:latest .
 ```
 
-Если реестр есть — обычный путь, плюс поправить тег в `k8s/kustomization.yaml`:
+Если k3s крутится на этой же машине:
 
 ```bash
-docker build -t registry.example.com/show-img:1.0.0 .
+docker save show-img:latest | sudo k3s ctr --namespace k8s.io images import -
+```
+
+Если k3s на отдельном сервере — заливаем по ssh:
+
+```bash
+docker save show-img:latest | ssh user@k3s-node "sudo k3s ctr --namespace k8s.io images import -"
+```
+
+Проверить, что узел действительно видит образ:
+
+```bash
+sudo k3s crictl images | grep show-img
+```
+
+Узлов несколько — импортировать надо на каждый, иначе под, уехавший на другой
+узел, снова не найдёт образ. На этом месте проще поднять реестр:
+
+```bash
+docker build --platform linux/amd64 --provenance=false -t registry.example.com/show-img:1.0.0 .
 docker push registry.example.com/show-img:1.0.0
 ```
 
 ```yaml
+# k8s/kustomization.yaml
 images:
   - name: show-img
     newName: registry.example.com/show-img
