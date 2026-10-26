@@ -16,7 +16,9 @@ FROM python:3.13-slim-bookworm
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    UVICORN_HOST=0.0.0.0 \
+    UVICORN_PORT=8000
 
 WORKDIR /app
 
@@ -30,4 +32,5 @@ USER app
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+# host/port берутся из UVICORN_HOST/UVICORN_PORT — явные флаги здесь перебили бы env
+CMD ["uvicorn", "app:app"]

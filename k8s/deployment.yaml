@@ -25,15 +25,20 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
+              # менять порт здесь и в UVICORN_PORT ниже одновременно:
+              # containerPort — это только метаданные, процесс слушает то,
+              # что сказано в UVICORN_PORT
               containerPort: 8000
           env:
+            - name: UVICORN_PORT
+              value: "8000"
             - name: PAGE_SIZE
               value: "30"
           envFrom:
             - secretRef:
                 name: show-img-db
-          # поды не стартуют, пока база недоступна — это осознанно:
-          # без DATABASE_URL приложение падает на старте с понятной ошибкой
+          # процесс начинает слушать порт сразу, не дожидаясь базы;
+          # недоступность Postgres видна как 503 на /readyz, а не как refused
           startupProbe:
             httpGet: { path: /readyz, port: http }
             periodSeconds: 3

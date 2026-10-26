@@ -27,8 +27,16 @@ BASE_DIR = Path(__file__).parent
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    pool = AsyncConnectionPool(DATABASE_URL, min_size=1, max_size=5, open=False)
-    await pool.open(wait=True)
+    pool = AsyncConnectionPool(
+        DATABASE_URL,
+        min_size=1,
+        max_size=5,
+        kwargs={"connect_timeout": 5},
+        open=False,
+    )
+    # wait=False: не блокируем старт, если база ещё недоступна — иначе процесс
+    # не начинает слушать порт и пробы получают connection refused вместо 503.
+    await pool.open(wait=False)
     app.state.pool = pool
     try:
         yield
@@ -106,7 +114,9 @@ async def healthz():
 async def readyz():
     """Readiness: проверяем, что пул действительно достаёт соединение до базы."""
     try:
-        async with app.state.pool.connection() as conn:
+        # ждём соединение не дольше пробы, иначе readinessProbe отвалится
+        # по таймауту и причина не попадёт ни в логи, ни в events
+        async with app.state.pool.connection(timeout=2) as conn:
             async with conn.cursor() as cur:
                 await cur.execute("SELECT 1")
     except Exception as exc:
