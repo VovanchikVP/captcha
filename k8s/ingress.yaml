@@ -1,0 +1,20 @@
+# k3s по умолчанию несёт Traefik, поэтому ingressClassName: traefik.
+# Поменяйте host на свой домен.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: show-img
+  namespace: rtt
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: rtt-capcha.home
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: show-img
+                port:
+                  name: http

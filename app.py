@@ -96,6 +96,24 @@ def to_src(image: str | bytes | None) -> str:
     return value
 
 
+@app.get("/healthz")
+async def healthz():
+    """Liveness: процесс жив, в базу не ходим."""
+    return {"status": "ok"}
+
+
+@app.get("/readyz")
+async def readyz():
+    """Readiness: проверяем, что пул действительно достаёт соединение до базы."""
+    try:
+        async with app.state.pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("SELECT 1")
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"База недоступна: {exc}") from exc
+    return {"status": "ok"}
+
+
 @app.get("/")
 async def index():
     return FileResponse(BASE_DIR / "static" / "index.html")
