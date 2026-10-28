@@ -1,12 +1,35 @@
 # k3s по умолчанию несёт Traefik, поэтому ingressClassName: traefik.
 # Поменяйте host на свой домен.
+#
+# HTTPS здесь обязателен, а не для красоты: Service Worker и Notification API
+# работают только в защищённом контексте, по http уведомления не включатся.
+# Сертификат лежит в секрете show-img-tls — как его сделать, см. README.
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: show-img-https-redirect
+  namespace: rtt
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: show-img
   namespace: rtt
+  annotations:
+    # заходы по http уводим на https, иначе телефон останется в незащищённом
+    # контексте и кнопка уведомлений будет скрыта
+    traefik.ingress.kubernetes.io/router.middlewares: rtt-show-img-https-redirect@kubernetescrd
 spec:
   ingressClassName: traefik
+  tls:
+    - hosts:
+        - rtt-capcha.home
+      secretName: show-img-tls
   rules:
     - host: rtt-capcha.home
       http:

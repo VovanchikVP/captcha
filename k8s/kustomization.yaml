@@ -13,3 +13,6 @@ resources:
 images:
   - name: show-img
     newTag: latest
+
+# Секрет show-img-tls с сертификатом домена создаётся отдельно
+# (kubectl create secret tls), чтобы ключ не лежал в репозитории — см. README.

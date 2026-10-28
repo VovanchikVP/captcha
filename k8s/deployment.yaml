@@ -34,9 +34,16 @@ spec:
               value: "8000"
             - name: PAGE_SIZE
               value: "30"
+            # как часто фоновая задача сверяет список неотвеченных картинок
+            - name: WATCH_INTERVAL_SEC
+              value: "10"
           envFrom:
             - secretRef:
                 name: show-img-db
+            # VAPID-ключи для Web Push; без этого секрета сервис работает,
+            # но уведомления выключены и кнопка на странице скрыта
+            - secretRef:
+                name: show-img-push
           # процесс начинает слушать порт сразу, не дожидаясь базы;
           # недоступность Postgres видна как 503 на /readyz, а не как refused
           startupProbe:
