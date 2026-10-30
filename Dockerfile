@@ -23,7 +23,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
 WORKDIR /app
 
 COPY --from=builder /app/.venv /app/.venv
-COPY app.py ./
+COPY src ./src
 COPY static ./static
 
 RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin app \
@@ -33,4 +33,4 @@ USER app
 EXPOSE 8000
 
 # host/port берутся из UVICORN_HOST/UVICORN_PORT — явные флаги здесь перебили бы env
-CMD ["uvicorn", "app:app"]
+CMD ["uvicorn", "src.main:app"]

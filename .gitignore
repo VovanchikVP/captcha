@@ -1,2 +1,7 @@
 k8s/secret.yaml
 .env
+__pycache__/
+*.pyc
+.venv/
+.ruff_cache/
+.mypy_cache/

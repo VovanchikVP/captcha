@@ -1,6 +1,6 @@
 """Генерация пары VAPID-ключей для Web Push.
 
-    uv run python gen_vapid_keys.py
+    uv run python -m src.services.vapid
 
 Приватный ключ кладётся в VAPID_PRIVATE_KEY (секрет, в git не коммитить),
 публичный — в VAPID_PUBLIC_KEY, его браузер получает через /api/push/public-key.
@@ -19,15 +19,21 @@ def b64url(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
 
 
-def main() -> None:
+def generate_keys() -> tuple[str, str]:
+    """Возвращает пару (приватный ключ, публичный ключ) в base64url."""
     key = ec.generate_private_key(ec.SECP256R1())
     private_raw = key.private_numbers().private_value.to_bytes(32, "big")
     public_raw = key.public_key().public_bytes(
         encoding=serialization.Encoding.X962,
         format=serialization.PublicFormat.UncompressedPoint,
     )
-    print(f"VAPID_PRIVATE_KEY={b64url(private_raw)}")
-    print(f"VAPID_PUBLIC_KEY={b64url(public_raw)}")
+    return b64url(private_raw), b64url(public_raw)
+
+
+def main() -> None:
+    private_key, public_key = generate_keys()
+    print(f"VAPID_PRIVATE_KEY={private_key}")
+    print(f"VAPID_PUBLIC_KEY={public_key}")
 
 
 if __name__ == "__main__":

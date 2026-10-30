@@ -9,10 +9,53 @@
 ```bash
 uv sync
 cp .env.example .env    # и прописать DATABASE_URL
-uv run uvicorn app:app --reload
+uv run uvicorn src.main:app --reload
 ```
 
 Открыть http://127.0.0.1:8000
+
+## Структура проекта
+
+```
+src/
+  main.py            сборка FastAPI-приложения и lifespan
+  api/               HTTP-слой: роутеры, зависимости
+    images.py        /api/images
+    push.py          /api/push
+    health.py        /healthz, /readyz
+    pages.py         /, /sw.js, /manifest.webmanifest
+  configs/           настройки из окружения (settings)
+  models/            pydantic-схемы запросов и ответов
+  services/          бизнес-логика и работа с базой
+    database.py      пул соединений
+    images.py        таблица captcha
+    push.py          подписки, рассылка, фоновое наблюдение
+    vapid.py         генерация VAPID-ключей
+static/              фронтенд и service worker
+```
+
+Слои ходят только вниз: `api` → `services` → `configs`; `models` и `configs`
+ни от чего не зависят.
+
+## Линтеры и форматер
+
+Код проверяется [ruff](https://docs.astral.sh/ruff/) (линтер + форматер) и
+[mypy](https://mypy.readthedocs.io/). Настройки — в `pyproject.toml`.
+
+```bash
+uv sync --group dev        # поставить dev-зависимости
+
+uv run ruff check .        # линт
+uv run ruff check --fix .  # линт с автоисправлением
+uv run ruff format .       # форматирование
+uv run mypy                # проверка типов
+```
+
+Перед коммитом достаточно прогнать все три:
+
+```bash
+uv run ruff format . && uv run ruff check . && uv run mypy
+```
 
 ## Переменные окружения
 
@@ -56,7 +99,7 @@ uv run uvicorn app:app --reload
 
 Как это устроено:
 
-- фоновая задача в `app.py` раз в `WATCH_INTERVAL_SEC` секунд забирает id
+- фоновая задача в `src/services/push.py` раз в `WATCH_INTERVAL_SEC` секунд забирает id
   неотвеченных картинок и сравнивает с предыдущим снимком. В таблице нет ни
   счётчика, ни времени создания (`id` — uuid), поэтому «новое» определяется
   именно диффом множества id;
@@ -72,7 +115,7 @@ uv run uvicorn app:app --reload
 1. Сгенерировать пару ключей и положить в `.env`:
 
    ```bash
-   uv run python gen_vapid_keys.py >> .env
+   uv run python -m src.services.vapid >> .env
    ```
 
    Ключи менять нельзя после того, как кто-то подписался: старые подписки
@@ -186,7 +229,7 @@ cp k8s/secret.example.yaml k8s/secret.yaml
 его выводом генератора:
 
 ```bash
-uv run python gen_vapid_keys.py
+uv run python -m src.services.vapid
 ```
 
 Оставить ключи пустыми можно: тогда сервис поднимется без уведомлений.
