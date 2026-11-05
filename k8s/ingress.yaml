@@ -24,6 +24,7 @@ metadata:
     # заходы по http уводим на https, иначе телефон останется в незащищённом
     # контексте и кнопка уведомлений будет скрыта
     traefik.ingress.kubernetes.io/router.middlewares: rtt-show-img-https-redirect@kubernetescrd
+    cert-manager.io/cluster-issuer: home-ca
 spec:
   ingressClassName: traefik
   tls:
