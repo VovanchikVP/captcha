@@ -37,6 +37,9 @@ spec:
             # как часто фоновая задача сверяет список неотвеченных картинок
             - name: WATCH_INTERVAL_SEC
               value: "10"
+            # на INFO в логах видно опросы наблюдателя и результат рассылки
+            - name: LOG_LEVEL
+              value: "INFO"
           envFrom:
             - secretRef:
                 name: show-img-db

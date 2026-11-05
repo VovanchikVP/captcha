@@ -15,6 +15,22 @@ from src.services.push import watch_new_images
 log = logging.getLogger("show-img")
 
 
+def setup_logging() -> None:
+    """Свой хендлер для логгера приложения.
+
+    uvicorn настраивает только свои логгеры, у корневого обработчиков нет —
+    без этого сообщения наблюдателя и рассылки до stdout просто не доходят,
+    и в `kubectl logs` видно лишь запросы.
+    """
+    if log.handlers:
+        return
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    log.addHandler(handler)
+    log.setLevel(settings.log_level)
+    log.propagate = False
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     pool = database.create_pool()
@@ -40,6 +56,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    setup_logging()
     app = FastAPI(title="show-img", lifespan=lifespan)
     app.include_router(api_router)
     app.mount("/static", StaticFiles(directory=settings.static_dir), name="static")

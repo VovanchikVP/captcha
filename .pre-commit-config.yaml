@@ -1,0 +1,51 @@
+# Хуки, которые прогоняются перед каждым коммитом.
+# Установка: uv sync --group dev && uv run pre-commit install
+# .idea переписывается самой IDE — не трогаем
+exclude: ^\.idea/
+
+default_language_version:
+  python: python3.13
+
+repos:
+  # Базовая гигиена файлов
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-yaml
+        args: [--allow-multiple-documents]  # k8s-манифесты
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: detect-private-key
+
+  # Линтер, форматер и типы — через uv, чтобы версии совпадали с pyproject.toml
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --fix --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      - id: mypy
+        name: mypy
+        entry: uv run mypy
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false  # набор файлов задан в [tool.mypy] files
+        require_serial: true

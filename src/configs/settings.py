@@ -32,6 +32,9 @@ class Settings:
     # раз в несколько секунд не тащил из базы неограниченную выборку
     watch_limit: int
 
+    # Уровень логирования приложения: на INFO видно работу наблюдателя и рассылки
+    log_level: str
+
     base_dir: Path = BASE_DIR
     static_dir: Path = STATIC_DIR
 
@@ -53,6 +56,7 @@ def load_settings() -> Settings:
         vapid_subject=os.getenv("VAPID_SUBJECT", "mailto:admin@example.com").strip(),
         watch_interval_sec=float(os.getenv("WATCH_INTERVAL_SEC", "10")),
         watch_limit=int(os.getenv("WATCH_LIMIT", "1000")),
+        log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
     )
 
 
