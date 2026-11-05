@@ -122,8 +122,8 @@ setInterval(poll, POLL_MS);
 
 const pushBtn = document.getElementById('push-toggle');
 
-// Push работает только в защищённом контексте: по http кнопку прячем,
-// иначе пользователь жмёт её и ничего не происходит
+// Push работает только в защищённом контексте: по http подписка невозможна,
+// кнопка в этом случае показывает причину и остаётся недоступной
 const pushSupported =
   window.isSecureContext && 'serviceWorker' in navigator && 'PushManager' in window;
 
@@ -135,10 +135,17 @@ function urlBase64ToUint8Array(base64) {
   return Uint8Array.from(raw, (ch) => ch.charCodeAt(0));
 }
 
-function setPushButton(state, text) {
+function setPushButton(state, text, details) {
+  // в разметке кнопка скрыта: показываем её только когда знаем, что писать.
+  // Прячет её обратно лишь initPush — когда подписываться некуда
+  pushBtn.hidden = false;
   pushBtn.dataset.state = state;
   pushBtn.textContent = text;
   pushBtn.disabled = state === 'busy' || state === 'blocked';
+  // подробности — в подсказку: на телефоне консоль недоступна, а без причины
+  // «не удалось включить» не отличить от «нет сертификата» и «нет FCM»
+  if (details) pushBtn.title = details;
+  else pushBtn.removeAttribute('title');
 }
 
 async function getRegistration() {
@@ -147,8 +154,16 @@ async function getRegistration() {
 
 async function initPush() {
   if (!pushSupported) {
-    // страница открыта по http (или совсем старый браузер) — молча прячем кнопку
-    pushBtn.hidden = true;
+    // контекст незащищённый: по http браузер не даст ни service worker,
+    // ни подписку. Показываем причину, а не пустое место — иначе непонятно,
+    // почему на телефоне кнопки нет, а на localhost есть
+    setPushButton(
+      'blocked',
+      'уведомления: нужен https',
+      `isSecureContext=${window.isSecureContext}, ` +
+        `serviceWorker=${'serviceWorker' in navigator}, ` +
+        `PushManager=${'PushManager' in window}`,
+    );
     return;
   }
 
@@ -225,12 +240,14 @@ pushBtn.addEventListener('click', async () => {
       await enablePush();
     }
   } catch (err) {
-    setPushButton('off', 'не удалось включить');
+    // чаще всего это отказ pushManager.subscribe(): нет FCM на устройстве
+    // или push-сервис недоступен из сети телефона
+    setPushButton('off', 'не удалось включить', String(err));
     console.error(err);
   }
 });
 
 initPush().catch((err) => {
-  pushBtn.hidden = true;
+  setPushButton('blocked', 'уведомления недоступны', String(err));
   console.error(err);
 });
