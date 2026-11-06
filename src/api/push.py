@@ -55,6 +55,8 @@ async def push_status(pool: Pool):
         "vapid_subject": settings.vapid_subject,
         "watch_interval_sec": settings.watch_interval_sec,
         "watch_limit": settings.watch_limit,
+        "push_ttl_sec": settings.push_ttl_sec,
+        "push_urgency": settings.push_urgency,
         "subscriptions": subscriptions,
         "subscriptions_error": subscriptions_error,
         "watcher": {

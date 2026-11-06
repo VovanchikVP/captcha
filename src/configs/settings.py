@@ -32,6 +32,15 @@ class Settings:
     # раз в несколько секунд не тащил из базы неограниченную выборку
     watch_limit: int
 
+    # Сколько push-сервис хранит уведомление, пока телефон недоступен.
+    # Телефон в глубоком сне (Doze) на связь выходит не сразу, и с коротким
+    # TTL сообщение успевает протухнуть — для пользователя это выглядит как
+    # «уведомление не пришло вообще»
+    push_ttl_sec: int
+    # Urgency для push-сервиса: high говорит разбудить устройство сразу,
+    # normal (по умолчанию в протоколе) разрешает придержать до пробуждения
+    push_urgency: str
+
     # Уровень логирования приложения: на INFO видно работу наблюдателя и рассылки
     log_level: str
 
@@ -56,6 +65,8 @@ def load_settings() -> Settings:
         vapid_subject=os.getenv("VAPID_SUBJECT", "mailto:admin@example.com").strip(),
         watch_interval_sec=float(os.getenv("WATCH_INTERVAL_SEC", "10")),
         watch_limit=int(os.getenv("WATCH_LIMIT", "1000")),
+        push_ttl_sec=int(os.getenv("PUSH_TTL_SEC", "3600")),
+        push_urgency=os.getenv("PUSH_URGENCY", "high").strip(),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
     )
 

@@ -181,6 +181,12 @@ async def count_subscriptions(pool: AsyncConnectionPool) -> int:
         return int(row[0]) if row else 0
 
 
+# Должен совпадать с tag в sw.js: push-сервис схлопывает накопленные
+# сообщения одной темы в последнее, и на экране телефона оно же заменяет
+# предыдущее уведомление. Иначе после долгого сна прилетает пачка.
+PUSH_TOPIC = "new-images"
+
+
 async def push_one(row: dict, payload: str) -> PushResult:
     """Одна отправка. Исключения не выпускает — результат виден в PushResult."""
     endpoint = row["endpoint"]
@@ -194,9 +200,12 @@ async def push_one(row: dict, payload: str) -> PushResult:
             data=payload,
             vapid_private_key=settings.vapid_private_key,
             vapid_claims={"sub": settings.vapid_subject},
-            ttl=600,
+            ttl=settings.push_ttl_sec,
+            headers={"Urgency": settings.push_urgency, "Topic": PUSH_TOPIC},
             timeout=10,
         )
+        # 201 от push-сервиса значит «принял в очередь», а не «телефон показал»:
+        # дальше сообщение идёт по каналу, о котором сервер ничего не узнает
         return PushResult(endpoint=endpoint, ok=True, status=getattr(response, "status", None))
     except WebPushException as exc:
         status = exc.status_code
