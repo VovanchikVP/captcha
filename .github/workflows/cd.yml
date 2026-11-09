@@ -1,0 +1,171 @@
+name: CD
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  NAMESPACE: rtt
+
+jobs:
+  build:
+    name: Сборка и публикация образа
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Имя образа в нижнем регистре
+        id: meta
+        run: echo "image=${REGISTRY}/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Логин в GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Собрать и запушить
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # ноды k3s обычно x86, а сборка может идти на другой архитектуре
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ github.sha }}
+            ${{ steps.meta.outputs.image }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Выкатка в k3s
+    needs: build
+    runs-on: ubuntu-latest
+    # окружение даёт возможность повесить ручное подтверждение и хранить переменные
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-kubectl@v4
+
+      - name: Подключиться к сети WireGuard
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq wireguard-tools
+          echo "${{ secrets.WG_CONFIG }}" | base64 -d | sudo tee /etc/wireguard/wg0.conf > /dev/null
+          sudo chmod 600 /etc/wireguard/wg0.conf
+          sudo wg-quick up wg0
+          sudo wg show
+
+      - name: Проверить, что API кластера виден
+        run: |
+          host=$(echo "${{ secrets.KUBE_API }}" | sed -E 's#https?://##; s#/.*##')
+          nc -z -w 5 "${host%%:*}" "${host##*:}" && echo "кластер доступен: $host"
+
+      - name: Установить kustomize
+        run: |
+          version=v5.5.0
+          curl -sSLo kustomize.tar.gz \
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${version}/kustomize_${version}_linux_amd64.tar.gz"
+          tar -xzf kustomize.tar.gz
+          sudo install kustomize /usr/local/bin/kustomize
+
+      - name: Подложить kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+          kubectl version --output=yaml
+
+      - name: Сформировать k8s/secret.yaml
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::секрет DATABASE_URL пуст — без него под не стартует"
+            exit 1
+          fi
+
+          # YAML собираем не руками, а через kubectl: он кодирует значения в
+          # base64, поэтому пароль с ':', '#' или переносом строки не ломает
+          # документ. Вывод уходит сразу в файл — в лог ничего не печатается,
+          # маскировка GitHub на base64 всё равно не распространяется.
+          {
+            kubectl create secret generic show-img-db \
+              --namespace "$NAMESPACE" \
+              --from-literal=DATABASE_URL="$DATABASE_URL" \
+              --dry-run=client -o yaml
+
+            # VAPID-ключи менять у живого сервиса нельзя: выданные подписки
+            # станут мёртвыми. Пустые значения в файл не кладём — пусть лучше
+            # останется то, что уже есть в кластере.
+            if [ -n "$VAPID_PRIVATE_KEY" ]; then
+              echo ---
+              kubectl create secret generic show-img-push \
+                --namespace "$NAMESPACE" \
+                --from-literal=VAPID_PUBLIC_KEY="$VAPID_PUBLIC_KEY" \
+                --from-literal=VAPID_PRIVATE_KEY="$VAPID_PRIVATE_KEY" \
+                --from-literal=VAPID_SUBJECT="${VAPID_SUBJECT:-mailto:admin@example.com}" \
+                --dry-run=client -o yaml
+            fi
+          } > k8s/secret.yaml
+
+          echo "в secret.yaml попали:"
+          grep -E "^  name:" k8s/secret.yaml
+
+      - name: Применить секреты
+        run: |
+          set -euo pipefail
+          kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -f k8s/secret.yaml
+
+          # show-img-push примонтирован через envFrom без optional: если ключей
+          # в GitHub нет и в кластере секрета тоже нет, под не запустится
+          if ! kubectl -n "$NAMESPACE" get secret show-img-push > /dev/null 2>&1; then
+            echo "VAPID_* не заданы — создаём пустой секрет, уведомления будут выключены"
+            kubectl -n "$NAMESPACE" create secret generic show-img-push \
+              --from-literal=VAPID_PUBLIC_KEY= \
+              --from-literal=VAPID_PRIVATE_KEY= \
+              --from-literal=VAPID_SUBJECT=mailto:admin@example.com
+          fi
+
+      - name: Подставить тег образа
+        working-directory: k8s
+        run: kustomize edit set image show-img=${{ needs.build.outputs.image }}:${{ github.sha }}
+
+      - name: Раскатить
+        run: kustomize build k8s | kubectl apply -f -
+
+      - name: Дождаться выкатки
+        run: kubectl -n "$NAMESPACE" rollout status deployment/show-img --timeout=300s
+
+      - name: Логи при сбое
+        if: failure()
+        run: kubectl -n "$NAMESPACE" logs deploy/show-img --tail=100 || true
+
+      - name: Состояние после выкатки
+        if: always()
+        run: kubectl -n "$NAMESPACE" get pods -o wide -l app=show-img
+
+      - name: Убрать secret.yaml с раннера
+        if: always()
+        run: rm -f k8s/secret.yaml
+
+      - name: Отключиться от WireGuard
+        if: always()
+        run: sudo wg-quick down wg0 || true

@@ -7,12 +7,14 @@ resources:
   - deployment.yaml
   - service.yaml
   - ingress.yaml
-  # secret.yaml создаётся из secret.example.yaml и не коммитится
-  - secret.yaml
 
 images:
+  # тег подставляет пайплайн: kustomize edit set image show-img=<образ>:<tag>
   - name: show-img
     newTag: latest
 
-# Секрет show-img-tls с сертификатом домена создаётся отдельно
-# (kubectl create secret tls), чтобы ключ не лежал в репозитории — см. README.
+# Секреты в оверлей намеренно не включены, чтобы в репозитории не лежали ключи:
+#   show-img-db, show-img-push — создаёт workflow CD из секретов GitHub
+#                                (вручную: kubectl apply -f k8s/secret.yaml)
+#   show-img-tls              — сертификат домена, kubectl create secret tls
+# Подробности — в README.

@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+jobs:
+  lint:
+    name: Линтеры и типы
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Установить uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Поставить зависимости
+        run: uv sync --frozen
+
+      - name: ruff check
+        run: uv run ruff check .
+
+      - name: ruff format
+        run: uv run ruff format --check .
+
+      - name: mypy
+        run: uv run mypy
+
+      - name: Проверить, что приложение импортируется
+        env:
+          # settings собирается на импорте и падает без DATABASE_URL;
+          # соединения тут не будет — пул открывается только в lifespan
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+        run: uv run python -c "import src.main"
+
+  manifests:
+    name: Манифесты k8s
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Собрать kustomize-оверлей
+        run: kubectl kustomize k8s > /dev/null

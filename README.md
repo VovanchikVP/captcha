@@ -367,6 +367,17 @@ uv run python -m src.services.vapid
 
 Оставить ключи пустыми можно: тогда сервис поднимется без уведомлений.
 
+Секреты применяются отдельной командой — в `k8s/kustomization.yaml` они
+намеренно не перечислены, чтобы в репозитории не оказалось ни строки
+подключения, ни приватного VAPID-ключа:
+
+```bash
+kubectl apply -f k8s/secret.yaml
+```
+
+При выкатке через GitHub Actions этот шаг не нужен: оба секрета создаёт
+workflow `CD` из секретов репозитория — см. «CI/CD» ниже.
+
 ### 2a. Выдать домену сертификат
 
 Без HTTPS уведомления не заработают — браузер не даёт Service Worker в
@@ -407,6 +418,8 @@ kubectl apply -k k8s/
 kubectl -n rtt rollout status deploy/show-img
 ```
 
+Обычно вручную это делать не нужно — то же самое выполняет workflow `CD`.
+
 ### 4. Открыть
 
 В `k8s/ingress.yaml` указан host `rtt-capcha.home` — замените на свой домен и
@@ -431,3 +444,67 @@ kubectl -n rtt port-forward svc/show-img 8080:80
   реплики, уведомления стоит вынести в отдельный Deployment с `replicas: 1`.
 - Ingress требует HTTPS и уводит http-заходы на https: без защищённого
   контекста браузер не даст включить уведомления.
+
+## CI/CD
+
+Два workflow в `.github/workflows/`:
+
+| Workflow | Когда | Что делает |
+|---|---|---|
+| `CI` | push в `master`/`main` и любой PR | `ruff check`, `ruff format --check`, `mypy`, проверка импорта приложения, сборка kustomize-оверлея `k8s/` |
+| `CD` | push в `master`/`main` и вручную (`workflow_dispatch`) | собирает образ, пушит в GHCR, заходит в закрытый кластер через WireGuard и раскатывает `k8s/` |
+
+### Что делает CD
+
+1. Собирает образ под `linux/amd64` (ноды k3s на x86, а раннер может быть
+   другим) и публикует его в GHCR двумя тегами: `:<sha>` и `:latest`.
+   Отдельный токен не нужен — хватает `GITHUB_TOKEN` с правом `packages: write`.
+2. Поднимает WireGuard-пир и проверяет, что API кластера отвечает.
+3. Собирает на раннере `k8s/secret.yaml` из секретов репозитория и применяет
+   его — так в кластере появляются `show-img-db` и `show-img-push`. Файл
+   генерируется через `kubectl create secret --dry-run=client -o yaml`,
+   значения уезжают в `data` как base64, и после выкатки файл удаляется.
+4. `kustomize edit set image show-img=<образ>:<sha>`, `kustomize build | kubectl apply -f -`
+   и ждёт `rollout status`. При сбое кладёт в лог последние 100 строк пода.
+
+Образ адресуется по SHA коммита, а не по `latest` — иначе `imagePullPolicy:
+IfNotPresent` оставил бы на узле старый слой и выкатка прошла бы вхолостую.
+
+VAPID-ключи workflow перезаписывает только если секрет `VAPID_PRIVATE_KEY`
+в GitHub непустой: менять их у живого сервиса нельзя — все выданные подписки
+станут мёртвыми. Если ключей в GitHub нет, а секрет в кластере уже есть, он
+остаётся нетронутым.
+
+### Что настроить в GitHub
+
+| Секрет / переменная | Назначение |
+|---|---|
+| `KUBE_CONFIG` | kubeconfig кластера в base64: `base64 -i ~/.kube/k3s.yaml \| pbcopy` |
+| `WG_CONFIG` | конфиг WireGuard-пира для раннера, в base64 |
+| `KUBE_API` | адрес API кластера в сети WG, например `10.8.0.10:6443` |
+| `DATABASE_URL` | строка подключения к Postgres — уходит в секрет `show-img-db` |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | ключи Web Push (`uv run python -m src.services.vapid`) |
+| `VAPID_SUBJECT` | контакт для push-сервиса, `mailto:` или `https:`; если пусто — `mailto:admin@example.com` |
+| Environment `production` | можно включить ручное подтверждение выкатки |
+
+Сертификат домена (`show-img-tls`) и настройка WireGuard-пира на сервере —
+разовые ручные шаги, в пайплайн не входят.
+
+### Доступ к образу из кластера
+
+Пакет в GHCR по умолчанию приватный, и узел k3s его не скачает. Проще всего в
+настройках пакета на GitHub сделать его публичным. Если образ должен остаться
+закрытым — завести на узле pull-секрет и сослаться на него в Deployment:
+
+```bash
+kubectl -n rtt create secret docker-registry ghcr \
+  --docker-server=ghcr.io \
+  --docker-username=<логин> \
+  --docker-password=<PAT с правом read:packages>
+```
+
+```yaml
+# k8s/deployment.yaml, в spec.template.spec
+imagePullSecrets:
+  - name: ghcr
+```
