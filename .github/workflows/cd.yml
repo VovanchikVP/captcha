@@ -53,6 +53,8 @@ jobs:
     runs-on: ubuntu-latest
     # окружение даёт возможность повесить ручное подтверждение и хранить переменные
     environment: production
+    env:
+      KUBECONFIG: ${{ github.workspace }}/.kube/config
     steps:
       - uses: actions/checkout@v4
 
@@ -81,11 +83,41 @@ jobs:
           sudo install kustomize /usr/local/bin/kustomize
 
       - name: Подложить kubeconfig
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
         run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config
-          chmod 600 ~/.kube/config
-          kubectl version --output=yaml
+          set -euo pipefail
+
+          if [ -z "$KUBE_CONFIG" ]; then
+            echo "::error::секрет KUBE_CONFIG пуст или недоступен этому окружению"
+            exit 1
+          fi
+
+          mkdir -p "$(dirname "$KUBECONFIG")"
+          # секрет кладут и в base64, и в открытом виде — принимаем оба варианта
+          if ! printf '%s' "$KUBE_CONFIG" | base64 -d > "$KUBECONFIG" 2>/dev/null; then
+            printf '%s' "$KUBE_CONFIG" > "$KUBECONFIG"
+          fi
+          chmod 600 "$KUBECONFIG"
+
+          if ! grep -q 'server:' "$KUBECONFIG"; then
+            echo "::error::KUBECONFIG не похож на kubeconfig (нет поля server) — проверьте, что секрет не обрезан"
+            exit 1
+          fi
+
+          # k3s по умолчанию пишет в kubeconfig https://127.0.0.1:6443 — через
+          # WireGuard это адрес раннера, а не ноды, поэтому проверяем явно
+          server=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
+          echo "API кластера: $server"
+          case "$server" in
+            *127.0.0.1*|*localhost*)
+              echo "::error::в kubeconfig прописан localhost — подставьте адрес ноды из KUBE_API"
+              exit 1
+              ;;
+          esac
+
+          kubectl version --client --output=yaml
+          kubectl cluster-info
 
       - name: Сформировать k8s/secret.yaml
         env:
@@ -160,7 +192,7 @@ jobs:
 
       - name: Состояние после выкатки
         if: always()
-        run: kubectl -n "$NAMESPACE" get pods -o wide -l app=show-img
+        run: kubectl -n "$NAMESPACE" get pods -o wide -l app=show-img || true
 
       - name: Убрать secret.yaml с раннера
         if: always()
