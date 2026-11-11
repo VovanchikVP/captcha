@@ -36,6 +36,7 @@ async def lifespan(app: FastAPI):
     pool = database.create_pool()
     # wait=False: не блокируем старт, если база ещё недоступна — иначе процесс
     # не начинает слушать порт и пробы получают connection refused вместо 503.
+
     await pool.open(wait=False)
     app.state.pool = pool
 
